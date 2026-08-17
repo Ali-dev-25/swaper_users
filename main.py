@@ -7,7 +7,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from database.db_manager import init_db, add_subscription, check_subscription
-from bot.handlers import auth_wizard, payment
+from bot.handlers import tiktok_swap, payment
 from config import BOT_TOKEN, ADMIN_ID
 
 # -------------------------------------------------------------
@@ -83,8 +83,9 @@ async def main():
             await message.answer(f"❌ خطأ: {str(e)}")
 
     # تضمين مسارات التبديل والدفع
-    dp.include_router(auth_wizard.router)
+    dp.include_router(tiktok_swap.router)
     dp.include_router(payment.router)
+    
 
     print("🚀 البوت قيد الاستماع ويعمل الآن...")
     await dp.start_polling(bot)
