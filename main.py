@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from database.db_manager import init_db, add_subscription, check_subscription
 from bot.handlers import auth_wizard, payment
@@ -25,29 +26,35 @@ async def main():
             ])
         )
 
-    @dp.message(lambda msg: msg.text == "/start")
+    # 1. أمر البداية /start الآمن
+    @dp.message(CommandStart())
     async def start_cmd(message: Message):
         is_sub = await check_subscription(message.from_user.id)
         text, kb = get_main_menu(is_sub)
         await message.answer(text, reply_markup=kb)
 
-    @dp.callback_query(lambda c: c.data == "back_home")
+    # 2. زر الرجوع للقائمة الرئيسية
+    @dp.callback_query(F.data == "back_home")
     async def back_home(callback: CallbackQuery):
         is_sub = await check_subscription(callback.from_user.id)
         text, kb = get_main_menu(is_sub)
         await callback.message.edit_text(text, reply_markup=kb)
 
-    # أمر للأدمن لتفعيل اشتراك يدوي لأي شخص: /grant 12345678
-    @dp.message(lambda msg: msg.text.startswith("/grant") and msg.from_user.id == ADMIN_ID)
+    # 3. أمر الأدمن الآمن لتفعيل الاشتراكات يدوياً: /grant 12345678
+    @dp.message(Command("grant"), F.from_user.id == ADMIN_ID)
     async def grant_manual(message: Message):
         try:
-            target_id = int(message.text.split()[1])
-            await add_subscription(target_id, days=30)
-            await message.answer(f"✅ تم تفعيل اشتراك 30 يوم للمعرف `{target_id}`")
-        except:
-            await message.answer("⚠️ الصيغة الصحيحة: `/grant USER_ID`")
+            args = message.text.split()
+            if len(args) > 1:
+                target_id = int(args[1])
+                await add_subscription(target_id, days=30)
+                await message.answer(f"✅ تم تفعيل اشتراك 30 يوم للمعرف: `{target_id}`")
+            else:
+                await message.answer("⚠️ يرجى تحديد الآيدي، مثال: `/grant 12345678`")
+        except Exception as e:
+            await message.answer(f"❌ حدث خطأ: {str(e)}")
 
-    # تضمين الـ Handlers
+    # تضمين مسارات المعالجات (التبديل والدفع)
     dp.include_router(auth_wizard.router)
     dp.include_router(payment.router)
 
