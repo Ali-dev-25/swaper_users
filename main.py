@@ -4,13 +4,14 @@ import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from database.db_manager import init_db, add_subscription, check_subscription
 from bot.handlers import auth_wizard, payment
 from config import BOT_TOKEN, ADMIN_ID
 
 # -------------------------------------------------------------
-# سيرفر ويب مصغر لفتح المنفذ وتخطي فحص Render (Port Binding)
+# خادم ويب مصغر لإبقاء البوت نشطاً على Render (Port Binding)
 # -------------------------------------------------------------
 async def health_check(request):
     return web.Response(text="🚀 Telegram Swapper Bot is Alive and Running 24/7!", status=200)
@@ -33,7 +34,7 @@ async def main():
     logging.basicConfig(level=logging.INFO)
     await init_db()
     
-    # 1. تشغيل خادم الويب المصغر لإرضاء Render
+    # 1. تشغيل خادم الويب المصغر لتخطي فحص Render
     await start_dummy_server()
     
     bot = Bot(token=BOT_TOKEN)
@@ -51,18 +52,23 @@ async def main():
             ])
         )
 
+    # أمر البداية /start مع تصفير أي حالة محادثة قديمة
     @dp.message(CommandStart())
-    async def start_cmd(message: Message):
+    async def start_cmd(message: Message, state: FSMContext):
+        await state.clear()  # مسح الحالات المعلقة ليعود للقائمة مباشرة
         is_sub = await check_subscription(message.from_user.id)
         text, kb = get_main_menu(is_sub)
         await message.answer(text, reply_markup=kb)
 
+    # زر الرجوع إلى القائمة الرئيسية
     @dp.callback_query(F.data == "back_home")
-    async def back_home(callback: CallbackQuery):
+    async def back_home(callback: CallbackQuery, state: FSMContext):
+        await state.clear()
         is_sub = await check_subscription(callback.from_user.id)
         text, kb = get_main_menu(is_sub)
         await callback.message.edit_text(text, reply_markup=kb)
 
+    # أمر للأدمن لتفعيل اشتراك يدوي لأي مستخدم: /grant 12345678
     @dp.message(Command("grant"), F.from_user.id == ADMIN_ID)
     async def grant_manual(message: Message):
         try:
@@ -76,7 +82,7 @@ async def main():
         except Exception as e:
             await message.answer(f"❌ خطأ: {str(e)}")
 
-    # تضمين معالجات العمليات والدفع
+    # تضمين مسارات التبديل والدفع
     dp.include_router(auth_wizard.router)
     dp.include_router(payment.router)
 
