@@ -50,11 +50,12 @@ async def show_guide(callback: CallbackQuery):
 # -------------------------------------------------------------
 @router.callback_query(F.data == "start_swap_wizard")
 async def start_tiktok_wizard(callback: CallbackQuery, state: FSMContext):
-    if not await check_subscription(callback.from_user.id):
+    sub_info = await check_subscription(callback.from_user.id)
+    if not sub_info["is_active"]:
         return await callback.message.edit_text(
-            "⚠️ لا تملك اشتراكاً نشطاً في البوت. اشترك للبدء:",
+            "⚠️ **عذراً، لا تملك اشتراكاً نشطاً أو انتهت مدته.**\nيرجى تجديد الاشتراك للمتابعة:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="💳 شراء اشتراك", callback_data="open_payment_menu")
+                InlineKeyboardButton(text="💳 شراء / تجديد الاشتراك", callback_data="open_payment_menu")
             ]])
         )
     
