@@ -10,11 +10,9 @@ from database.db_manager import init_db, add_subscription, check_subscription
 from bot.handlers import tiktok_swap, payment
 from config import BOT_TOKEN, ADMIN_ID
 
-# -------------------------------------------------------------
-# خادم ويب مصغر لإبقاء البوت نشطاً على Render (Port Binding)
-# -------------------------------------------------------------
+# سيرفر ويب داخلي لإبقاء السيرفر حياً
 async def health_check(request):
-    return web.Response(text="🚀 Telegram Swapper Bot is Alive and Running 24/7!", status=200)
+    return web.Response(text="Bot is running smoothly!", status=200)
 
 async def start_dummy_server():
     port = int(os.getenv("PORT", 10000))
@@ -25,69 +23,72 @@ async def start_dummy_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"🌐 تم فتح المنفذ بنجاح على Port: {port}")
 
-# -------------------------------------------------------------
-# تشغيل البوت الأساسي
-# -------------------------------------------------------------
 async def main():
     logging.basicConfig(level=logging.INFO)
     await init_db()
-    
-    # 1. تشغيل خادم الويب المصغر لتخطي فحص Render
     await start_dummy_server()
     
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
-    def get_main_menu(is_sub: bool):
-        status_text = "✅ نشط" if is_sub else "❌ غير مشترك"
+    def build_main_menu(sub_info: dict):
+        if sub_info["is_active"]:
+            status_text = (
+                f"✅ **نشط (VIP)**\n"
+                f"⏳ **المتبقي:** {sub_info['days_left']} يوم و {sub_info.get('hours_left', 0)} ساعة\n"
+                f"📅 **ينتهي في:** `{sub_info['end_date']}`\n"
+                f"⚡️ **العمليات:** غير محدودة"
+            )
+            buttons = [
+                [InlineKeyboardButton(text="⚡️ بدء تبديل يوزر تيك توك", callback_data="start_swap_wizard")],
+                [InlineKeyboardButton(text="💳 تمديد الاشتراك", callback_data="open_payment_menu")],
+                [InlineKeyboardButton(text="📖 شرح استخراج الكوكيز", callback_data="show_cookie_guide")]
+            ]
+        else:
+            status_text = "❌ **غير مشترك (أو انتهى الاشتراك)**"
+            buttons = [
+                [InlineKeyboardButton(text="💳 شراء اشتراك جديد", callback_data="open_payment_menu")],
+                [InlineKeyboardButton(text="📖 شرح استخراج الكوكيز", callback_data="show_cookie_guide")]
+            ]
+
         return (
-            f"👋 **مرحباً بك في بوت التبديل الفوري لليوزرات** ⚡️\n\n"
-            f"📌 **حالة اشتراكك:** {status_text}\n"
-            f"🛡 **الأمان:** تشفير كامل وتدمير فوري للجلسات بعد النقل.",
-            InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⚡️ بدء تبديل يوزر", callback_data="start_swap_wizard")],
-                [InlineKeyboardButton(text="💳 الاشتراك والأسعار", callback_data="open_payment_menu")]
-            ])
+            f"👋 **مرحباً بك في بوت التبديل الفوري لحسابات تيك توك** ⚡️\n\n"
+            f"📌 **حالة اشتراكك:**\n{status_text}\n\n"
+            f"🛡 **الأمان:** تشفير كامل وتدمير فوري لكود الجلسة بعد النقل.",
+            InlineKeyboardMarkup(inline_keyboard=buttons)
         )
 
-    # أمر البداية /start مع تصفير أي حالة محادثة قديمة
     @dp.message(CommandStart())
     async def start_cmd(message: Message, state: FSMContext):
-        await state.clear()  # مسح الحالات المعلقة ليعود للقائمة مباشرة
-        is_sub = await check_subscription(message.from_user.id)
-        text, kb = get_main_menu(is_sub)
+        await state.clear()
+        sub_info = await check_subscription(message.from_user.id)
+        text, kb = build_main_menu(sub_info)
         await message.answer(text, reply_markup=kb)
 
-    # زر الرجوع إلى القائمة الرئيسية
     @dp.callback_query(F.data == "back_home")
     async def back_home(callback: CallbackQuery, state: FSMContext):
         await state.clear()
-        is_sub = await check_subscription(callback.from_user.id)
-        text, kb = get_main_menu(is_sub)
+        sub_info = await check_subscription(callback.from_user.id)
+        text, kb = build_main_menu(sub_info)
         await callback.message.edit_text(text, reply_markup=kb)
 
-    # أمر للأدمن لتفعيل اشتراك يدوي لأي مستخدم: /grant 12345678
+    # أمر الأدمن لتفعيل اشتراك وتحديد عدد الأيام: /grant 12345678 30
     @dp.message(Command("grant"), F.from_user.id == ADMIN_ID)
     async def grant_manual(message: Message):
         try:
             args = message.text.split()
-            if len(args) > 1:
-                target_id = int(args[1])
-                await add_subscription(target_id, days=30)
-                await message.answer(f"✅ تم تفعيل اشتراك 30 يوم للمعرف: `{target_id}`")
-            else:
-                await message.answer("⚠️ الصيغة: `/grant USER_ID`")
+            target_id = int(args[1])
+            days = int(args[2]) if len(args) > 2 else 30
+            await add_subscription(target_id, days=days)
+            await message.answer(f"✅ تم تفعيل/تمديد الاشتراك لمدة {days} يوماً للمستخدم: `{target_id}`")
         except Exception as e:
-            await message.answer(f"❌ خطأ: {str(e)}")
+            await message.answer("⚠️ الصيغة: `/grant USER_ID DAYS`\nمثال: `/grant 5739511727 30`")
 
-    # تضمين مسارات التبديل والدفع
     dp.include_router(tiktok_swap.router)
     dp.include_router(payment.router)
-    
 
-    print("🚀 البوت قيد الاستماع ويعمل الآن...")
+    print("🚀 البوت شغال الآن بالمنطق الكامل...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
